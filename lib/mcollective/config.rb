@@ -4,7 +4,7 @@ module MCollective
         include Singleton
 
         attr_reader :topicprefix, :daemonize, :pluginconf, :libdir, :configured, :logfile,
-                    :keeplogs, :max_log_size, :loglevel, :identity, :daemonize, :connector,
+                    :keeplogs, :max_log_size, :loglevel, :logmechanism, :identity, :daemonize, :connector,
                     :securityprovider, :factsource, :registration, :registerinterval, :topicsep,
                     :classesfile, :rpcauditprovider, :rpcaudit, :configdir, :rpcauthprovider,
                     :rpcauthorization, :color, :configfile, :rpchelptemplate
@@ -64,6 +64,8 @@ module MCollective
                                      @max_log_size = val.to_i
                                 when "loglevel"
                                      @loglevel = val
+                                when "logmechanism"
+                                     @logmechanism = val
                                 when "libdir"
                                     @libdir = val
                                     unless $LOAD_PATH.include?(val)
