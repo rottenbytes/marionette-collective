@@ -20,7 +20,8 @@ module MCollective
                     end
                     # loglevel has to be a valid syslog level
                     valid_levels = ["crit", "emerg", "alert", "warning", "notice", "info", "debug", "err"]
-                    raise("Loglevel should be a valid syslog level") unless valid_levels.include? @loglevel
+                    raise("Loglevel should be a valid syslog level") unless valid_levels.include? config.loglevel
+                    
                 when "logger"
                     @logger = Logger.new(config.logfile, config.keeplogs, config.max_log_size)
                     @logger.formatter = Logger::Formatter.new
