@@ -1,10 +1,10 @@
 ---
-layout: mcollective
+layout: default
 title: ActiveMQ Security
 disqus: true
 ---
 [Security]: http://activemq.apache.org/security.html
-[Registration]: /reference/plugins/registration.html
+[Registration]: /mcollective/reference/plugins/registration.html
 [Wildcard]: http://activemq.apache.org/wildcards.html
 [ActiveMQ TLS]: activemq_ssl.html
 
@@ -22,6 +22,15 @@ The default message targets looks like this:
     /topic/mcollective.agentname.command
     /topic/mcollective.agentname.reply
 {% endhighlight %}
+
+If you are using versions newer than _1.1.3_ and you are using Subcollectives each subcollective will have topics like:
+
+{% highlight console %}
+    /topic/subcollective.agentname.command
+    /topic/subcollective.agentname.reply
+{% endhighlight %}
+
+For a node to belong to a sub collective he also need rights to these topics.
 
 The nodes only need read access to the command topics and only need write access to the reply topics. The examples below also give them admin access so these topics can be created dynamically. For simplicity we'll wildcard the agent names, you could go further and limit certain nodes to only run certain agents. Adding these controls effectively means anyone who gets onto your node will not be able to write to the command topics and so will not be able to send commands to the rest of the collective.
 

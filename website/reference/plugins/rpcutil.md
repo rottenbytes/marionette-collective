@@ -1,5 +1,5 @@
 ---
-layout: mcollective
+layout: default
 title: The rpcutil Agent
 disqus: true
 ---
@@ -17,7 +17,7 @@ Retrieves an inventory of the facts, classes and agents on the system, takes no 
 and returns a hash like this:
 
 {% highlight ruby %}
-{:agents   => ["rpcutil", "discovery"],     
+{:agents   => ["rpcutil", "discovery"],
  :facts     => {"mcollective"=>1},
  :classes   => ["common::linux", "motd"]}
 {% endhighlight %}
@@ -65,7 +65,7 @@ Returns a list of all agents with their meta data like version, author, license 
               {:agent=>"discovery",
 	       :license=>"Apache License, Version 2",
 	       :author=>"R.I.Pienaar <rip@devco.net>"},
-	       
+
 	      {:agent=>"rpcutil",
 	       :license=>"Apache License, Version 2.0",
 	       :name=>"Utilities and Helpers for SimpleRPC Agents",
@@ -76,4 +76,40 @@ Returns a list of all agents with their meta data like version, author, license 
 	       :timeout=>3}
 	   ]
 }
+{% endhighlight %}
+
+## _get`_`config`_`item_ Action
+
+Retrieves the active value for any configuration item on a server
+
+{% highlight ruby %}
+{:item   => "loglevel",
+ :value  => "debug"}
+{% endhighlight %}
+
+## _ping_ Action
+
+A simple lightweight ping action that just returns each nodes local time
+
+{% highlight ruby %}
+{:pong   => 1295471526}
+{% endhighlight %}
+
+## _collective`_`info_ Action
+
+Retrieves the main and sub collectives configured on a version 1.1.3 or newer
+server
+
+For a server configured with:
+
+{% highlight ruby %}
+collectives = mcollectivedev,subdev1
+main_collective = mcollectivedev
+{% endhighlight %}
+
+The following structure gets returned:
+
+{% highlight ruby %}
+{:collectives=>["mcollectivedev", "subdev1"],
+ :main_collective=>"mcollectivedev"}
 {% endhighlight %}

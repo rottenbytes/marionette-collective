@@ -1,10 +1,12 @@
-topicprefix = /topic/mcollective
+topicprefix = /topic/
+main_collective = mcollective
+collectives = mcollective
 libdir = /usr/libexec/mcollective
 logfile = /var/log/mcollective.log
 loglevel = info
 daemonize = 1
 
-# Plugins 
+# Plugins
 securityprovider = psk
 plugin.psk = unset
 

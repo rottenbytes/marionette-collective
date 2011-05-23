@@ -1,16 +1,16 @@
 ---
-layout: mcollective
+layout: default
 title: Writing SimpleRPC Agents
 disqus: true
 ---
-[WritingAgents]: /reference/basic/basic_agent_and_client.html
-[SimpleRPCClients]: /simplerpc/clients.html
-[ResultsandExceptions]: /simplerpc/clients.html#Results_and_Exceptions
-[SimpleRPCAuditing]: /simplerpc/auditing.html
-[SimpleRPCAuthorization]: /simplerpc/authorization.html
-[SimpleRPCDDL]: /simplerpc/ddl.html
+[WritingAgents]: /mcollective/reference/basic/basic_agent_and_client.html
+[SimpleRPCClients]: /mcollective/simplerpc/clients.html
+[ResultsandExceptions]: /mcollective/simplerpc/clients.html#Results_and_Exceptions
+[SimpleRPCAuditing]: /mcollective/simplerpc/auditing.html
+[SimpleRPCAuthorization]: /mcollective/simplerpc/authorization.html
+[SimpleRPCDDL]: /mcollective/simplerpc/ddl.html
 [WritingAgentsScreenCast]: http://mcollective.blip.tv/file/3808928/
-[RPCUtil]: /reference/plugins/rpcutil.html
+[RPCUtil]: /mcollective/reference/plugins/rpcutil.html
 
 # {{page.title}}
 
@@ -55,7 +55,7 @@ module MCollective
             # Basic echo server
             action "echo" do
                 validate :msg, String
-     
+
                 reply.data = request[:msg]
             end
         end
@@ -71,6 +71,7 @@ A helper agent called [_rpcutil_][RPCUtil] is included from version _0.4.9_ onwa
 The agent name is derived from the class name, the example code creates *MCollective::Agent::Helloworld* and the agent name would be *helloworld*.
 
 <a name="Meta_Data_and_Initialization">&nbsp;</a>
+
 ### Meta Data and Initialization
 Simple RPC agents still need meta data like in [WritingAgents], without it you'll just have some defaults assigned, code below adds the meta data to our agent:
 
@@ -79,17 +80,17 @@ module MCollective
     module Agent
         class Helloworld<RPC::Agent
             metadata :name        => "SimpleRPC Sample Agent",
-                     :description => "Echo service for MCollective", 
+                     :description => "Echo service for MCollective",
                      :author      => "R.I.Pienaar",
                      :license     => "GPLv2",
                      :version     => "1.1",
-                     :url         => "http://mcollective-plugins.googlecode.com/",
+                     :url         => "http://projects.puppetlabs.com/projects/mcollective-plugins/wiki",
                      :timeout     => 60
 
             # Basic echo server
             action "echo" do
                 validate :msg, String
-     
+
                 reply.data = request[:msg]
             end
         end
@@ -107,7 +108,7 @@ Actions are the individual tasks that your agent can do, they should just be in 
 {% highlight ruby linenos %}
             def echo_action
                 validate :msg, String
-     
+
                 reply.data = request[:msg]
             end
 {% endhighlight %}
@@ -117,7 +118,7 @@ There's a helper to create this for you, you saw it earlier:
 {% highlight ruby linenos %}
             action "echo" do
                 validate :msg, String
-     
+
                 reply.data = request[:msg]
             end
 {% endhighlight %}
@@ -131,11 +132,11 @@ We have a separate file that goes together with an agent and is used to describe
 
 {% highlight ruby linenos %}
 metadata :name        => "SimpleRPC Sample Agent",
-         :description => "Echo service for MCollective", 
+         :description => "Echo service for MCollective",
          :author      => "R.I.Pienaar",
          :license     => "GPLv2",
          :version     => "1.1",
-         :url         => "http://mcollective-plugins.googlecode.com/",
+         :url         => "http://projects.puppetlabs.com/projects/mcollective-plugins/wiki",
          :timeout     => 60
 
 action "echo", description "Echos back any message it receives" do
@@ -179,11 +180,17 @@ The table below shows the validators we support currently
 |Type Checks|Verifies that input is of a given ruby data type|validate :msg, String|
 |IPv4 Checks|Validates an ip v4 address, note 5.5.5.5 is technically a valid address|validate :ipaddr, :ipv4address|
 |IPv6 Checks|Validates an ip v6 address|validate :ipaddr, :ipv6address|
-|system call safety checks|Makes sure the input is a string and has no &gt;&lt;backtick or pipe characters in it|validate :command, :shellsafe|
+|system call safety checks|Makes sure the input is a string and has no &gt;&lt;backtick, semi colon, dollar, ambersand or pipe characters in it|validate :command, :shellsafe|
 
 All of these checks will raise an InvalidRPCData exception, you shouldn't catch this exception as the Simple RPC framework catches those and handles them appropriately.
 
 We'll make input validators plugins so you can provide your own types of validation easily.
+
+Additionally if can escape strings being passed to a shell, escaping is done in line with the _Shellwords#shellescape_ method that is in newer version of Ruby:
+
+{% highlight ruby linenos %}
+   safe = shellescape(request[:foo])
+{% endhighlight %}
 
 ## Agent Configuration
 
@@ -228,9 +235,77 @@ request[:msg]
 
 Accessing it via the first will give you full access to all the normal Hash methods where the 2nd will only give you access to *include?*.
 
+## Running Shell Commands
+
+NOTE: Only available since 1.1.3
+
+A helper function exist that makes it easier to run shell commands and gain
+access to their _STDOUT_ and _STDERR_.
+
+We recommend everyone use this method for calling to shell commands as it forces
+*LC_ALL* to *C* as well as wait on all the children and avoids zombies, you can
+set unique working directories and shell environments that would be impossible
+using simple _system_ that is provided with Ruby.
+
+The simplest case is just to run a command and send output back to the client:
+
+{% highlight ruby %}
+reply[:status] = run("echo 'hello world'", :stdout => :out, :stderr => :err)
+{% endhighlight %}
+
+Here you will have set _reply`[`:out`]`_, _reply`[`:err`]`_ and _reply`[`:status`]`_ based
+on the output from the command
+
+You can append the output of the command to any string:
+
+{% highlight ruby %}
+out = []
+err = ""
+status = run("echo 'hello world'", :stdout => out, :stderr => err)
+{% endhighlight %}
+
+Here the STDOUT of the command will be saved in the variable _out_ and not sent
+back to the caller.  The only caveat is that the variables _out_ and _err_ should
+have the _<<_ method, so if you supplied an array each line of output will be a
+single member of the array.  In the example _out_ would be an array of lines
+while _err_ would just be a big multi line string.
+
+By default any trailing new lines will be included in the output and error:
+
+{% highlight ruby %}
+reply[:status] = run("echo 'hello world'", :stdout => :out, :stderr => :err)
+reply[:stdout].chomp!
+reply[:stderr].chomp!
+{% endhighlight %}
+
+You can shorten this to:
+
+{% highlight ruby %}
+reply[:status] = run("echo 'hello world'", :stdout => :out, :stderr => :err, :chomp => true)
+{% endhighlight %}
+
+This will remove a trailing new line from the _reply`[`:out`]`_ and _reply`[`:err`]`_.
+
+If you wanted this command to run from the _/tmp_ directory:
+
+{% highlight ruby %}
+reply[:status] = run("echo 'hello world'", :stdout => :out, :stderr => :err, :cwd => "/tmp")
+{% endhighlight %}
+
+Or if you wanted to include a shell Environment variable:
+
+{% highlight ruby %}
+reply[:status] = run("echo 'hello world'", :stdout => :out, :stderr => :err, :environment => {"FOO" => "BAR"})
+{% endhighlight %}
+
+You have to set the cwd and environment through these options, do not simply
+call _chdir_ or adjust the _ENV_ hash in an agent as that will not be safe in
+the context of a multi threaded Ruby application.
+
 ## Constructing Replies
+
 ### Reply Data
-The reply data is in the *reply* variable and is an instance of *MCollective::RPC::Reply*.  
+The reply data is in the *reply* variable and is an instance of *MCollective::RPC::Reply*.
 
 You can pass values back by simply assining anything to the data like here:
 
@@ -277,6 +352,29 @@ Technically this will just set *statuscode* and *statusmsg* fields in the reply 
 It won't actually raise exceptions or exit your action though you should do that yourself as in the example here.
 
 From version 0.4.3 onward there is also a *fail!* instead of just *fail* it does the same basic function but also raises exceptions.  This lets you abort processing of the agent immediately without performing your own checks on *statuscode* as above later on.
+
+## Actions in external scripts
+Actions can be implemented using other programming languages as long as they support JSON.
+
+{% highlight ruby %}
+action "test" do
+    implemented_by "/some/external/script"
+end
+{% endhighlight %}
+
+The script _/some/external/script_ will be called with 2 arguments:
+
+ * The path to a file with the request in JSON format
+ * The path to a file where you should write your response as a JSON hash
+
+You can also access these 2 file paths in the *MCOLLECTIVE_REPLY_FILE* and *MCOLLECTIVE_REQUEST_FILE* environment variables
+
+Simply write your reply as a JSON hash into the reply file.
+
+The exit code of your script should correspond to the ones in [ResultsandExceptions].  Any text in STDERR will be
+logged on the server at *error* level and used in the text for the fail text.
+
+Any text to STDOUT will be logged on the server at level *info*.
 
 ## Authorization
 You can write a fine grained Authorization system to control access to actions and agents, please see [SimpleRPCAuthorization] for full details.

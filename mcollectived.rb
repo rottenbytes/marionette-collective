@@ -16,7 +16,7 @@ opts.each do |opt, arg|
     case opt
         when '--help'
             puts "Usage: mcollectived.rb [--config /path/to/config] [--pidfile /path/to/pid]"
-            exit 
+            exit
         when '--config'
             configfile = arg
         when '--pidfile'
@@ -28,15 +28,19 @@ config = MCollective::Config.instance
 
 config.loadconfig(configfile) unless config.configured
 
-log = MCollective::Log.instance
+MCollective::Log.info("The Marionette Collective #{MCollective::VERSION} started logging at #{config.loglevel} level")
 
 Signal.trap("TERM") do
-    log.info("Received TERM signal, terminating")
+    if MCollective::PluginManager.include?("connector_plugin")
+        MCollective::PluginManager["connector_plugin"].disconnect
+    end
+
+    MCollective::Log.info("Received TERM signal, terminating")
     exit!
 end
 
 if config.daemonize
-    log.debug("Starting in the background (#{config.daemonize})")
+    MCollective::Log.debug("Starting in the background (#{config.daemonize})")
     MCollective::Runner.daemonize do
         if pid
             begin
@@ -49,7 +53,7 @@ if config.daemonize
     	runner.run
     end
 else
-    log.debug("Starting in the foreground")
+    MCollective::Log.debug("Starting in the foreground")
     runner = MCollective::Runner.new(configfile)
     runner.run
 end

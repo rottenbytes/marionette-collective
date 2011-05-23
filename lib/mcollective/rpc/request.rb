@@ -1,5 +1,5 @@
 module MCollective
-    module RPC 
+    module RPC
         # Simple class to manage compliant requests for MCollective::RPC agents
         class Request
             attr_accessor :time, :action, :data, :sender, :agent, :uniqid, :caller
@@ -21,6 +21,14 @@ module MCollective
                 return @data.include?(key)
             end
 
+            # If no :process_results is specified always respond else respond
+            # based on the supplied property
+            def should_respond?
+                return @data[:process_results] if @data.include?(:process_results)
+
+                return true
+            end
+
             # If data is a hash, gives easy access to its members, else returns nil
             def [](key)
                 return nil unless @data.is_a?(Hash)
@@ -31,6 +39,12 @@ module MCollective
                 return {:agent => @agent,
                         :action => @action,
                         :data => @data}
+            end
+
+            def to_json
+                to_hash.merge!({:sender   => @sender,
+                               :callerid => @callerid,
+                               :uniqid   => @uniqid}).to_json
             end
         end
     end

@@ -1,12 +1,12 @@
 ---
-layout: mcollective
+layout: default
 title: Message Format
 disqus: true
 ---
-[SecurityPlugins]: http://github.com/mcollective/marionette-collective/tree/master/plugins/mcollective/security/
-[SimpleRPCIntroduction]: /simplerpc/
+[SecurityPlugins]: http://github.com/puppetlabs/marionette-collective/tree/master/plugins/mcollective/security/
+[SimpleRPCIntroduction]: /mcollective/simplerpc/
 [MessageFlow]: messageflow.html
-[ScreenCast]: /introduction/screencasts.html#message_flow
+[ScreenCast]: /mcollective/screencasts.html#message_flow
 
 # {{page.title}}
 
@@ -17,7 +17,7 @@ The messages that gets put on the middleware attempts to contain everything that
 
 At present the task of encoding and decoding messages lies with the _MCollective::Security::`*`_ classes, see the provided [security plugins][SecurityPlugins] as a examples.
 
-Abstracting the encoding away from the security plugins is a goal for future refactorings, till then each security plugin will need to at least conform to the following structure.  
+Abstracting the encoding away from the security plugins is a goal for future refactorings, till then each security plugin will need to at least conform to the following structure.
 
 In general this is all hidden from the developers, especially if you use [Simple RPC][SimpleRPCIntroduction].  If you want to implement your own security or serialization you will need to know exactly how all of this sticks together.
 
@@ -25,6 +25,12 @@ There is also a [screencast][ScreenCast] that shows this process and message for
 
 ## Message Flow
 For details of the flow of messages and how requests / replies travel around the network see the [MessageFlow] page.
+
+## History
+
+|Date|Description|Ticket|
+|----|-----------|------|
+|2011/04/23|Add _agent_ and _collective_ to the request hashes|7113|
 
 ### Requests sent to agents
 A sample request that gets sent to the connector can be seen here, each component is described below:
@@ -34,12 +40,14 @@ A sample request that gets sent to the connector can be seen here, each componen
   {"cf_class"      => ["common::linux"],
    "fact"          => [{:fact=>"country", :value=>"uk"}],
    "agent"         => ["package"]},
- :senderid  => "devel.your.com",
- :msgtarget => "/topic/mcollective.discovery.command",
- :body      => body,
- :hash      => "2d437f2904980ac32d4ebb7ca1fd740b",
- :msgtime   => 1258406924,
- :requestid => "0b54253cb5d04eb8b26ea75bbf468cbc"}
+ :senderid    => "devel.your.com",
+ :msgtarget   => "/topic/mcollective.discovery.command",
+ :agent:      => 'discovery',
+ :collective' => 'mcollective',
+ :body        => body,
+ :hash        => "2d437f2904980ac32d4ebb7ca1fd740b",
+ :msgtime     => 1258406924,
+ :requestid   => "0b54253cb5d04eb8b26ea75bbf468cbc"}
 {% endhighlight %}
 
 Once this request is created the security plugin will serialize it and sent it to the connector, in the case of the PSK security plugin this is done using Marshal.
@@ -54,7 +62,7 @@ Valid filter types are:
 
 ##### CF Class
 
-This will look in a list of classes/recipes/cookbooks/roles applied by your 
+This will look in a list of classes/recipes/cookbooks/roles applied by your
 configuration management system and match based on that
 
 {% highlight ruby %}
@@ -76,6 +84,24 @@ Since facts are key => value pairs this is a bit more complex than normal as you
 {% highlight ruby %}
 filter["fact"] = [{:fact => "country", :value => "uk"}]
 {% endhighlight %}
+
+Regular expression matches are:
+
+{% highlight ruby %}
+filter["fact"] = [{:fact => "country", :value => "/uk/"}]
+{% endhighlight %}
+
+As of version 1.1.0 this has been extended to support more comparison operators:
+
+{% highlight ruby %}
+filter["fact"] = [{:fact => "country", :value => "uk", :operator => "=="}]
+{% endhighlight %}
+
+Valid operators are: ==, =~, &lt;=, =&gt;, &gt;=, =&lt;, &gt; &lt; and !=
+
+As regular expressions are now done using their own operator backwards compatability
+is lost and in mixed version environment 1.1.x clients doing regex matches on facts
+will be treated as equality on 1.0.x and older clients.
 
 ##### Identity
 
@@ -100,7 +126,7 @@ The contents of the body will vary by what ever the security provider choose to 
 This ensures that variable types etc remain in tact end to end.  Other security providers might use JSON etc, the decoding of this is also handled by the security provider so its totally up to the provider to decide.
 
 In the case of [Simple RPC][SimpleRPCIntroduction] the entire RPC request and replies will be in the body of the messages, it's effectively a layer on top of the basic message flow.
- 
+
 #### :hash
 
 This is an example of something specific to the security provider, this is used only by the PSK provider so it's optional and specific to the PSK provider

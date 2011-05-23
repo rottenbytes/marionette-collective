@@ -5,50 +5,48 @@ module MCollective
         def initialize
             @starttime = Time.now.to_i
             @validated = 0
-            @unvalidated = 0 
+            @unvalidated = 0
             @filtered = 0
-            @passed = 0 
+            @passed = 0
             @total = 0
             @replies = 0
 
             @mutex = Mutex.new
-
-            @logger = Log.instance
         end
 
         # Records a message that passed the filters
         def passed
-            @logger.debug("Incrementing passed stat")
+            Log.debug("Incrementing passed stat")
             @passed += 1
         end
 
         # Records a message that didnt pass the filters
         def filtered
-            @logger.debug("Incrementing filtered stat")
-            @filtered += 1 
+            Log.debug("Incrementing filtered stat")
+            @filtered += 1
         end
 
         # Records a message that validated ok
         def validated
-            @logger.debug("Incrementing validated stat")
+            Log.debug("Incrementing validated stat")
             @validated += 1
         end
 
         def unvalidated
-            @logger.debug("Incrementing unvalidated stat")
+            Log.debug("Incrementing unvalidated stat")
             @unvalidated += 1
         end
 
         # Records receipt of a message
         def received
-            @logger.debug("Incrementing total stat")
+            Log.debug("Incrementing total stat")
             @total += 1
         end
 
         # Records sending a message
         def sent
-            @mutex.synchronize do 
-                @logger.debug("Incrementing replies stat")
+            @mutex.synchronize do
+                Log.debug("Incrementing replies stat")
                 @replies += 1
             end
         end
@@ -68,7 +66,7 @@ module MCollective
                      :pid => Process.pid,
                      :times => {} }
 
-            ::Process.times.each_pair{|k,v| 
+            ::Process.times.each_pair{|k,v|
                k = k.to_sym
                reply[:times][k] = v
             }

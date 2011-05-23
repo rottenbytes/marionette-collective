@@ -8,43 +8,66 @@ module MCollective
         def initialize(configfile)
             @config = Config.instance
             @config.loadconfig(configfile) unless @config.configured
-            @log = Log.instance
+
             @connection = PluginManager["connector_plugin"]
-
             @security = PluginManager["security_plugin"]
+
             @security.initiated_by = :client
-
             @options = nil
-
             @subscriptions = {}
 
             @connection.connect
         end
 
-        # Sends a request and returns the generated request id, doesn't wait for 
+        # Returns the configured main collective if no
+        # specific collective is specified as options
+        def collective
+            if @options[:collective].nil?
+                @config.main_collective
+            else
+                @options[:collective]
+            end
+        end
+
+        # Disconnects cleanly from the middleware
+        def disconnect
+            Log.debug("Disconnecting from the middleware")
+            @connection.disconnect
+        end
+
+        # Sends a request and returns the generated request id, doesn't wait for
         # responses and doesn't execute any passed in code blocks for responses
         def sendreq(msg, agent, filter = {})
-            target = Util.make_target(agent, :command)
+            target = Util.make_target(agent, :command, collective)
 
             reqid = Digest::MD5.hexdigest("#{@config.identity}-#{Time.now.to_f.to_s}-#{target}")
 
-            req = @security.encoderequest(@config.identity, target, msg, reqid, filter)
-    
-            @log.debug("Sending request #{reqid} to #{target}")
+            # Security plugins now accept an agent and collective, ones written for <= 1.1.4 dont
+            # but we still want to support them, try to call them in a compatible way if they
+            # dont support the new arguments
+            begin
+                req = @security.encoderequest(@config.identity, target, msg, reqid, filter, agent, collective)
+            rescue ArgumentError
+                req = @security.encoderequest(@config.identity, target, msg, reqid, filter)
+            end
+
+            Log.debug("Sending request #{reqid} to #{target}")
 
             unless @subscriptions.include?(agent)
-                topic = Util.make_target(agent, :reply)
-                @log.debug("Subscribing to #{topic}")
+                topic = Util.make_target(agent, :reply, collective)
+                Log.debug("Subscribing to #{topic}")
 
-                @connection.subscribe(topic)
+                Util.subscribe(topic)
                 @subscriptions[agent] = 1
             end
 
-            @connection.send(target, req)
+            Timeout.timeout(2) do
+                @connection.send(target, req)
+            end
 
             reqid
         end
-    
+
         # Blocking call that waits for ever for a message to arrive.
         #
         # If you give it a requestid this means you've previously send a request
@@ -62,8 +85,11 @@ module MCollective
                 msg[:senderid] = Digest::MD5.hexdigest(msg[:senderid]) if ENV.include?("MCOLLECTIVE_ANON")
 
                 raise(MsgDoesNotMatchRequestID, "Message reqid #{requestid} does not match our reqid #{msg[:requestid]}") if msg[:requestid] != requestid
+            rescue SecurityValidationFailed => e
+                Log.warn("Ignoring a message that did not pass security validations")
+                retry
             rescue MsgDoesNotMatchRequestID => e
-                @log.debug("Ignoring a message for some other client")
+                Log.debug("Ignoring a message for some other client")
                 retry
             end
 
@@ -74,14 +100,14 @@ module MCollective
         # returns an array of nodes
         def discover(filter, timeout)
             begin
-                reqid = sendreq("ping", "discovery", filter)
-                @log.debug("Waiting #{timeout} seconds for discovery replies to request #{reqid}")
-
                 hosts = []
                 Timeout.timeout(timeout) do
+                    reqid = sendreq("ping", "discovery", filter)
+                    Log.debug("Waiting #{timeout} seconds for discovery replies to request #{reqid}")
+
                     loop do
                         msg = receive(reqid)
-                        @log.debug("Got discovery reply from #{msg[:senderid]}")
+                        Log.debug("Got discovery reply from #{msg[:senderid]}")
                         hosts << msg[:senderid]
                     end
                 end
@@ -93,7 +119,7 @@ module MCollective
         end
 
         # Send a request, performs the passed block for each response
-        # 
+        #
         # times = req("status", "mcollectived", options, client) {|resp|
         #   pp resp
         # }
@@ -107,15 +133,15 @@ module MCollective
 
             STDOUT.sync = true
 
-            reqid = sendreq(body, agent, options[:filter])
-
             hosts_responded = 0
 
             begin
                 Timeout.timeout(options[:timeout]) do
+                    reqid = sendreq(body, agent, options[:filter])
+
                     loop do
                         resp = receive(reqid)
-    
+
                         hosts_responded += 1
 
                         yield(resp)
@@ -137,7 +163,7 @@ module MCollective
         end
 
         # Performs a discovery and then send a request, performs the passed block for each response
-        # 
+        #
         #    times = discovered_req("status", "mcollectived", options, client) {|resp|
         #       pp resp
         #    }
@@ -169,13 +195,13 @@ module MCollective
 
             raise("No matching clients found") if discovered == 0
 
-            reqid = sendreq(body, agent, options[:filter])
-
             begin
                 Timeout.timeout(options[:timeout]) do
+                    reqid = sendreq(body, agent, options[:filter])
+
                     (1..discovered).each do |c|
                         resp = receive(reqid)
-    
+
                         hosts_responded << resp[:senderid]
                         hosts_not_responded.delete(resp[:senderid]) if hosts_not_responded.include?(resp[:senderid])
 
@@ -214,7 +240,7 @@ module MCollective
                 printf("  Discovery Time: %.2fms\n", stats[:discoverytime] * 1000)
                 printf("      Agent Time: %.2fms\n", stats[:blocktime] * 1000)
                 printf("      Total Time: %.2fms\n", stats[:totaltime] * 1000)
-    
+
             else
                 if stats[:discovered]
                     printf("\nFinished processing %d / %d hosts in %.2f ms\n\n", stats[:responses], stats[:discovered], stats[:blocktime] * 1000)
@@ -225,7 +251,7 @@ module MCollective
 
             if stats[:noresponsefrom].size > 0
                 puts("\nNo response from:\n")
-    
+
                 stats[:noresponsefrom].each do |c|
                     puts if c % 4 == 1
                     printf("%30s", c)

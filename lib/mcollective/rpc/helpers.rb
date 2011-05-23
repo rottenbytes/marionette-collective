@@ -2,6 +2,37 @@ module MCollective
     module RPC
         # Various utilities for the RPC system
         class Helpers
+            # Checks in PATH returns true if the command is found
+            def self.command_in_path?(command)
+                found = ENV["PATH"].split(File::PATH_SEPARATOR).map do |p|
+                    File.exist?(File.join(p, command))
+                end
+
+                found.include?(true)
+            end
+
+            # Figures out the columns and liens of the current tty
+            #
+            # Returns [0, 0] if it can't figure it out or if you're
+            # not running on a tty
+            def self.terminal_dimensions
+                return [0, 0] unless STDIN.tty?
+
+                if ENV["COLUMNS"] && ENV["LINES"]
+                    return [ENV["COLUMNS"].to_i, ENV["LINES"].to_i]
+
+                elsif ENV["TERM"] && command_in_path?("tput")
+                    return [`tput cols`.to_i, `tput lines`.to_i]
+
+                elsif command_in_path?('stty')
+                    return `stty size`.scan(/\d+/).map {|s| s.to_i }
+                else
+                    return [0, 0]
+                end
+            rescue
+                [0, 0]
+            end
+
             # Return color codes, if the config color= option is false
             # just return a empty string
             def self.color(code)
@@ -48,15 +79,16 @@ module MCollective
                 flags = {:verbose => false, :flatten => false}.merge(flags)
 
                 result_text = ""
+                ddl = nil
 
                 # if running in verbose mode, just use the old style print
                 # no need for all the DDL helpers obfuscating the result
                 if flags[:verbose]
                     result_text = old_rpcresults(result, flags)
                 else
-                    result.each do |r|
+                    [result].flatten.each do |r|
                         begin
-                            ddl = DDL.new(r.agent).action_interface(r.action.to_s)
+                            ddl ||= DDL.new(r.agent).action_interface(r.action.to_s)
 
                             sender = r[:sender]
                             status = r[:statuscode]
@@ -111,12 +143,23 @@ module MCollective
                     if result.is_a?(Hash)
                         # figure out the lengths of the display as strings, we'll use
                         # it later to correctly justify the output
-                        lengths = result.keys.map{|k| ddl[:output][k][:display_as].size}
+                        lengths = result.keys.map do |k|
+                            begin
+                                ddl[:output][k][:display_as].size
+                            rescue
+                                k.to_s.size
+                            end
+                        end
 
                         result.keys.each do |k|
                             # get all the output fields nicely lined up with a
                             # 3 space front padding
-                            display_as = ddl[:output][k][:display_as]
+                            begin
+                                display_as = ddl[:output][k][:display_as]
+                            rescue
+                                display_as = k.to_s
+                            end
+
                             display_length = display_as.size
                             padding = lengths.max - display_length + 3
                             result_text << " " * padding
@@ -126,7 +169,8 @@ module MCollective
                             if result[k].is_a?(String) || result[k].is_a?(Numeric)
                                 result_text << " #{result[k]}\n"
                             else
-                                result_text << "\n\t" + result[k].pretty_inspect.split("\n").join("\n\t") + "\n"
+                                padding = " " * (lengths.max + 5)
+                                result_text << " " << result[k].pretty_inspect.split("\n").join("\n" << padding) << "\n"
                             end
                         end
                     else
@@ -172,14 +216,14 @@ module MCollective
 
                     result_text << ""
                 else
-                    result.each do |r|
+                    [result].flatten.each do |r|
 
                         if flags[:verbose]
                             result_text << "%-40s: %s\n" % [r[:sender], r[:statusmsg]]
 
                             if r[:statuscode] <= 1
                                 r[:data].pretty_inspect.split("\n").each {|m| result_text += "    #{m}"}
-                                result_text += "\n"
+                                result_text << "\n\n"
                             elsif r[:statuscode] == 2
                                 # dont print anything, no useful data to display
                                 # past what was already shown
@@ -210,6 +254,14 @@ module MCollective
                 # add SimpleRPC specific options to all clients that use our library
                 parser.on('--np', '--no-progress', 'Do not show the progress bar') do |v|
                     options[:progress_bar] = false
+                end
+
+                parser.on('--one', '-1', 'Send request to only one discovered nodes') do |v|
+                    options[:mcollective_limit_targets] = "1"
+                end
+
+                parser.on('--limit-nodes [COUNT]', '--ln [COUNT]', 'Send request to only a subset of nodes, can be a percentage') do |v|
+                    options[:mcollective_limit_targets] = v
                 end
             end
         end

@@ -51,20 +51,25 @@ module MCollective
         #     plugin.stomp.pool.max_reconnect_attempts = 0
         #     plugin.stomp.pool.randomize = false
         #     plugin.stomp.pool.timeout = -1
+        #
+        # For versions of ActiveMQ that supports message priorities
+        # you can set a priority, this will cause a "priority" header
+        # to be emitted if present:
+        #
+        #     plugin.stomp.priority = 4
+        #
         class Stomp<Base
             attr_reader :connection
 
             def initialize
                 @config = Config.instance
                 @subscriptions = []
-
-                @log = Log.instance
             end
 
             # Connects to the Stomp middleware
             def connect
                 if @connection
-                    @log.debug("Already connection, not re-initializing connection")
+                    Log.debug("Already connection, not re-initializing connection")
                     return
                 end
 
@@ -73,6 +78,8 @@ module MCollective
                     port = nil
                     user = nil
                     password = nil
+                    @base64 = get_bool_option("stomp.base64", false)
+                    @msgpriority = get_option("stomp.priority", 0).to_i
 
                     # Maintain backward compat for older stomps
                     unless @config.pluginconf.include?("stomp.pool.size")
@@ -81,7 +88,7 @@ module MCollective
                         user = get_env_or_option("STOMP_USER", "stomp.user")
                         password = get_env_or_option("STOMP_PASSWORD", "stomp.password")
 
-                        @log.debug("Connecting to #{host}:#{port}")
+                        Log.debug("Connecting to #{host}:#{port}")
                         @connection = ::Stomp::Connection.new(user, password, host, port, true)
                     else
                         pools = @config.pluginconf["stomp.pool.size"].to_i
@@ -96,7 +103,7 @@ module MCollective
                             host[:passcode] = get_env_or_option("STOMP_PASSWORD", "stomp.pool.password#{poolnum}")
                             host[:ssl] = get_bool_option("stomp.pool.ssl#{poolnum}", false)
 
-                            @log.debug("Adding #{host[:host]}:#{host[:port]} to the connection pool")
+                            Log.debug("Adding #{host[:host]}:#{host[:port]} to the connection pool")
                             hosts << host
                         end
 
@@ -115,7 +122,7 @@ module MCollective
                         connection[:backup] = get_bool_option("stomp.pool.backup", false)
                         connection[:timeout] = get_option("stomp.pool.timeout", -1).to_i
 
-                        @connection = ::Stomp::Connection.new({:hosts => hosts})
+                        @connection = ::Stomp::Connection.new(connection)
                     end
                 rescue Exception => e
                     raise("Could not connect to Stomp Server: #{e}")
@@ -124,30 +131,37 @@ module MCollective
 
             # Receives a message from the Stomp connection
             def receive
-                @log.debug("Waiting for a message from Stomp")
+                Log.debug("Waiting for a message from Stomp")
                 msg = @connection.receive
 
                 # STOMP puts the payload in the body variable, pass that
                 # into the payload of MCollective::Request and discard all the
                 # other headers etc that stomp provides
-                Request.new(msg.body)
+                if @base64
+                    Request.new(SSL.base64_decode(msg.body))
+                else
+                    Request.new(msg.body)
+                end
             end
 
             # Sends a message to the Stomp connection
             def send(target, msg)
-                @log.debug("Sending a message to Stomp target '#{target}'")
+                Log.debug("Sending a message to Stomp target '#{target}'")
+
+                msg = SSL.base64_encode(msg) if @base64
+
                 # deal with deprecation warnings in newer stomp gems
                 if @connection.respond_to?("publish")
-                    @connection.publish(target, msg)
+                    @connection.publish(target, msg, msgheaders)
                 else
-                    @connection.send(target, msg)
+                    @connection.send(target, msg, msgheaders)
                 end
             end
 
             # Subscribe to a topic or queue
             def subscribe(source)
                 unless @subscriptions.include?(source)
-                    @log.debug("Subscribing to #{source}")
+                    Log.debug("Subscribing to #{source}")
                     @connection.subscribe(source)
                     @subscriptions << source
                 end
@@ -155,18 +169,25 @@ module MCollective
 
             # Subscribe to a topic or queue
             def unsubscribe(source)
-                @log.debug("Unsubscribing from #{source}")
+                Log.debug("Unsubscribing from #{source}")
                 @connection.unsubscribe(source)
                 @subscriptions.delete(source)
             end
 
             # Disconnects from the Stomp connection
             def disconnect
-                @log.debug("Disconnecting from Stomp")
+                Log.debug("Disconnecting from Stomp")
                 @connection.disconnect
             end
 
             private
+            def msgheaders
+                headers = {}
+                headers = {"priority" => @msgpriority} if @msgpriority > 0
+
+                return headers
+            end
+
             # looks in the environment first then in the config file
             # for a specific option, accepts an optional default.
             #

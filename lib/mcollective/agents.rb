@@ -6,7 +6,6 @@ module MCollective
             @config = Config.instance
             raise ("Configuration has not been loaded, can't load agents") unless @config.configured
 
-            @log = Log.instance
             @@agents = {}
 
             loadagents
@@ -14,58 +13,66 @@ module MCollective
 
         # Loads all agents from disk
         def loadagents
-            @log.debug("Reloading all agents from disk")
+            Log.debug("Reloading all agents from disk")
 
             # We're loading all agents so just nuke all the old agents and unsubscribe
-            connector = PluginManager["connector_plugin"]
             @@agents.each_key do |agent|
-                connector.unsubscribe(Util.make_target(agent, :command))
+                PluginManager.delete "#{agent}_agent"
+                Util.unsubscribe(Util.make_target(agent, :command))
             end
 
             @@agents = {}
 
-            agentdir = "#{@config.libdir}/mcollective/agent"
-            raise("Cannot find agents directory") unless File.directory?(agentdir)
+            @config.libdir.each do |libdir|
+                agentdir = "#{libdir}/mcollective/agent"
+                next unless File.directory?(agentdir)
 
-            Dir.new(agentdir).grep(/\.rb$/).each do |agent|
-                agentname = File.basename(agent, ".rb")
-                loadagent(agentname)
+                Dir.new(agentdir).grep(/\.rb$/).each do |agent|
+                    agentname = File.basename(agent, ".rb")
+                    loadagent(agentname) unless PluginManager.include?("#{agentname}_agent")
+                end
             end
         end
 
         # Loads a specified agent from disk if available
         def loadagent(agentname)
-            agentfile = "#{@config.libdir}/mcollective/agent/#{agentname}.rb"
+            agentfile = findagentfile(agentname)
+            return false unless agentfile
             classname = "MCollective::Agent::#{agentname.capitalize}"
-
-            return false unless File.exist?(agentfile)
 
             PluginManager.delete("#{agentname}_agent")
 
             begin
-                PluginManager.loadclass(classname)
-                PluginManager << {:type => "#{agentname}_agent", :class => classname}
+                single_instance = ["registration", "discovery"].include?(agentname)
 
-                PluginManager["connector_plugin"].subscribe(Util.make_target(agentname, :command)) unless @@agents.include?(agentname)
+                PluginManager.loadclass(classname)
+                PluginManager << {:type => "#{agentname}_agent", :class => classname, :single_instance => single_instance}
+
+                Util.subscribe(Util.make_target(agentname, :command)) unless @@agents.include?(agentname)
 
                 @@agents[agentname] = {:file => agentfile}
                 return true
             rescue Exception => e
-                @log.error("Loading agent #{agentname} failed: #{e}")
+                Log.error("Loading agent #{agentname} failed: #{e}")
                 PluginManager.delete("#{agentname}_agent")
             end
+        end
+
+        # searches the libdirs for agents
+        def findagentfile(agentname)
+            @config.libdir.each do |libdir|
+                agentfile = "#{libdir}/mcollective/agent/#{agentname}.rb"
+                if File.exist?(agentfile)
+                    Log.debug("Found #{agentname} at #{agentfile}")
+                    return agentfile
+                end
+            end
+            return false
         end
 
         # Determines if we have an agent with a certain name
         def include?(agentname)
             PluginManager.include?("#{agentname}_agent")
-        end
-
-        # Sends a message to a specific agent
-        def send(agentname, msg, connection)
-            raise("No such agent") unless include?(agentname)
-
-            PluginManager["#{agentname}_agent"].handlemsg(msg, connection)
         end
 
         # Returns the help for an agent after first trying to get
@@ -84,22 +91,17 @@ module MCollective
             body.join("\n")
         end
 
-        # Determine the max amount of time a specific agent should be running
-        def timeout(agentname)
-            raise("No such agent") unless include?(agentname)
-
-            PluginManager["#{agentname}_agent"].timeout
-        end
-
         # Dispatches a message to an agent, accepts a block that will get run if there are
         # any replies to process from the agent
         def dispatch(msg, target, connection)
-            @log.debug("Dispatching a message to agent #{target}")
+            Log.debug("Dispatching a message to agent #{target}")
 
             Thread.new do
                 begin
-                    Timeout::timeout(timeout(target)) do
-                        replies = send(target, msg, connection)
+                    agent = PluginManager["#{target}_agent"]
+
+                    Timeout::timeout(agent.timeout) do
+                        replies = agent.handlemsg(msg, connection)
 
                         # Agents can decide if they wish to reply or not,
                         # returning nil will mean nothing goes back to the
@@ -109,10 +111,10 @@ module MCollective
                         end
                     end
                 rescue Timeout::Error => e
-                    @log.warn("Timeout while handling message for #{target}")
+                    Log.warn("Timeout while handling message for #{target}")
                 rescue Exception => e
-                    @log.error("Execution of #{target} failed: #{e}")
-                    @log.error(e.backtrace.join("\n\t\t"))
+                    Log.error("Execution of #{target} failed: #{e}")
+                    Log.error(e.backtrace.join("\n\t\t"))
                 end
             end
         end

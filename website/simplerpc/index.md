@@ -1,17 +1,18 @@
 ---
-layout: mcollective
+layout: default
 title: SimpleRPC Introduction
 disqus: true
 ---
-[WritingAgents]: /reference/basic/basic_agent_and_client.html
-[SimpleRPCAgents]: /simplerpc/agents.html
-[SimpleRPCClients]: /simplerpc/clients.html
-[SimpleRPCAuditing]: /simplerpc/auditing.html
-[SimpleRPCAuthorization]: /simplerpc/authorization.html
-[SimpleRPCDDL]: /simplerpc/ddl.html
-[RPCUtil]: /reference/plugins/rpcutil.html
+[WritingAgents]: /mcollective/reference/basic/basic_agent_and_client.html
+[SimpleRPCAgents]: /mcollective/simplerpc/agents.html
+[SimpleRPCClients]: /mcollective/simplerpc/clients.html
+[SimpleRPCAuditing]: /mcollective/simplerpc/auditing.html
+[SimpleRPCAuthorization]: /mcollective/simplerpc/authorization.html
+[SimpleRPCDDL]: /mcollective/simplerpc/ddl.html
+[SimpleRPCMessageFormat]: /mcollective/simplerpc/messageformat.html
+[RPCUtil]: /mcollective/reference/plugins/rpcutil.html
 [WritingAgentsScreenCast]: http://mcollective.blip.tv/file/3808928/
-[RestGateway]: http://github.com/mcollective/marionette-collective/blob/master/ext/mc-rpc-restserver.rb
+[RestGateway]: http://github.com/puppetlabs/marionette-collective/blob/master/ext/mc-rpc-restserver.rb
 
 # {{page.title}}
 
@@ -29,7 +30,8 @@ SimpleRPC is a framework that provides the following:
  * The provided generic calling tool should be able to speak to most compliant agents
  * Should you need to you can still write your own clients, this should be very easy too
  * Return data should be easy to print, in most cases the framework should be able to print a sensible output with a single, provided, function.  The [SimpleRPCDDL] is used here to improve the standard one-size-fits-all methods.
- * The full capabilities of the standard Client classes should still be exposed in case you want to write advanced agents and clients
+ * The full capabilities of the standard Client classes shouldddl still be exposed in case you want to write advanced agents and clients
+ * A documented [standard message format][SimpleRPCMessageFormat] built ontop of the core format.
 
 
 We've provided full tutorials on [Writing Simple RPC Agents][SimpleRPCAgents] and [Clients][SimpleRPCClients].  There is also a [screencast that will give you a quick look at what is involved in writing agents][WritingAgentsScreenCast].
@@ -44,7 +46,7 @@ module MCollective
             # Basic echo server
             def echo_action
                 validate :msg, String
-     
+
                 reply.data = request[:msg]
             end
         end
@@ -55,14 +57,14 @@ end
 The nice thing about using a standard abstraction for clients is that you often won't even need to write a client for it, we ship a standard client that you can use to call the agent above:
 
 {% highlight console %}
- % mc-rpc --agent helloworld --action echo --arg msg="Welcome to MCollective Simple RPC"
+ % mco rpc --agent helloworld --action echo --arg msg="Welcome to MCollective Simple RPC"
  Determining the amount of hosts matching filter for 2 seconds .... 1
-                                         
+
  devel.your.com                          : OK
      "Welcome to MCollective Simple RPC"
- 
- 
- 
+
+
+
  ---- rpctest#echo call stats ----
             Nodes: 1
        Start Time: Wed Dec 23 20:49:14 +0000 2009
@@ -71,10 +73,10 @@ The nice thing about using a standard abstraction for clients is that you often 
        Total Time: 54.35ms
 {% endhighlight %}
 
-You could also use *mc-rpc* like this and achieve the same result:
+You could also use *mco rpc* like this and achieve the same result:
 
 {% highlight console %}
- % mc-rpc helloworld echo msg="Welcome to MCollective Simple RPC"
+ % mco rpc helloworld echo msg="Welcome to MCollective Simple RPC"
 {% endhighlight %}
 
 For multiple options just add more *key=val* pairs at the end
@@ -83,11 +85,11 @@ But you can still write your own clients, it's incredibly simple, full details o
 
 {% highlight ruby linenos %}
 #!/usr/bin/ruby
- 
+
 require 'mcollective'
- 
+
 include MCollective::RPC
- 
+
 mc = rpcclient("helloworld")
 
 printrpc mc.echo(:msg => "Welcome to MCollective Simple RPC")

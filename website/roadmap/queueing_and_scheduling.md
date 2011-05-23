@@ -1,11 +1,12 @@
 ---
-layout: mcollective
+layout: default
 title: Queuing and Scheduling
 disqus: true
 ---
 [InitialMailThread]: http://groups.google.com/group/mcollective-users/browse_frm/thread/583dbf305bef2f8d
 [ThreadManagement]: thread_management.html
 [OtherLanguages]: actions_in_other_languages.html
+[SLURM]: https://computing.llnl.gov/linux/slurm/overview.html
 [BDD]: cucumber.html
 
 # {{page.title}}
@@ -23,10 +24,10 @@ Currently mcollective is all real time and not optimised for long running tasks 
 The use case for these can be:
 
  * do yum updates
- * run puppetd --test and get output later 
- * dig through lots of log files 
+ * run puppetd --test and get output later
+ * dig through lots of log files
  * restart a service at 4am
- * build vms, this a multi stage task with dependencies: make volume, make config, dd image into volume, start vm 
+ * build vms, this a multi stage task with dependencies: make volume, make config, dd image into volume, start vm
 
 We want to add the ability to:
 
@@ -51,7 +52,7 @@ To do a puppet run today we do something like this:
 
 {% highlight ruby %}
 puppet = rpcclient("puppetd")
-printrpc puppet.status 
+printrpc puppet.status
 {% endhighlight %}
 
 To do a scheduled task right now but just in the background:
@@ -70,10 +71,15 @@ The job results will then be saved when it's done on the node and later its outp
 Instead of the plain _:background_ you will be able to provide a schedule like _2010-09-01 04:00_
 
 ## Job Storage
-Jobs will be stored on each node, we want to make them resilient to all sorts of failure.  
+Jobs will be stored on each node, we want to make them resilient to all sorts of failure.
 
 The current mcollectived will have a thread that tracks jobs due to start and will then fork off a manager.  Potentially we might need a second daemon to manage the job queue but will try to avoid this.
 
 Replies will also be stored on disk on every node.
 
 The real time nature of mcollective will be used to create/edit/delete/query the jobs on disk, this will ensure maximum portability across middleware systems.  We could use something like beanstalk for the jobs but that would just add extra dependencies.
+
+## Inspiration
+Some systems that might be worth reviewing for inspiration or to learn how job scheduling works in other industries:
+
+  * [The Simple Linux Utility for Resource Management][SLURM]

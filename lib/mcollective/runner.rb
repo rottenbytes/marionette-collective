@@ -1,13 +1,11 @@
 module MCollective
-    # The main runner for the daemon, supports running in the foreground 
+    # The main runner for the daemon, supports running in the foreground
     # and the background, keeps detailed stats and provides hooks to access
     # all this information
     class Runner
         def initialize(configfile)
             @config = Config.instance
             @config.loadconfig(configfile) unless @config.configured
-
-            @log = Log.instance
 
             @stats = PluginManager["global_stats"]
 
@@ -17,16 +15,16 @@ module MCollective
             @connection = PluginManager["connector_plugin"]
             @connection.connect
 
-            @agents = Agents.new 
+            @agents = Agents.new
 
             Signal.trap("USR1") do
-                @log.info("Reloading all agents after receiving USR1 signal")
+                Log.info("Reloading all agents after receiving USR1 signal")
                 @agents.loadagents
             end
 
             Signal.trap("USR2") do
-                @log.info("Cycling logging level due to USR2 signal")
-                @log.cycle_level
+                Log.info("Cycling logging level due to USR2 signal")
+                Log.cycle_level
             end
         end
 
@@ -39,94 +37,97 @@ module MCollective
                 STDIN.reopen('/dev/null')
                 STDOUT.reopen('/dev/null', 'a')
                 STDERR.reopen('/dev/null', 'a')
-    
+
                 yield
             end
         end
 
         # Starts the main loop, before calling this you should initialize the MCollective::Config singleton.
         def run
-            controltopic = Util.make_target("mcollective", :command)
-            @connection.subscribe(controltopic)
+            controltopics = Util.make_target("mcollective", :command)
+            Util.subscribe(controltopics)
 
             # Start the registration plugin if interval isn't 0
             begin
                 PluginManager["registration_plugin"].run(@connection) unless @config.registerinterval == 0
             rescue Exception => e
-                @log.error("Failed to start registration plugin: #{e}")
+                Log.error("Failed to start registration plugin: #{e}")
             end
 
             loop do
                 begin
                     msg = receive
-                    dest = msg[:msgtarget]
 
-                    if dest =~ /#{controltopic}/
-                        @log.debug("Handling message for mcollectived controller")
-    
-                        controlmsg(msg) 
-                    elsif dest =~ /#{@config.topicprefix}#{@config.topicsep}(.+)#{@config.topicsep}command/
-                        target = $1
-    
-                        @log.debug("Handling message for #{target}")
-    
-                        agentmsg(msg, target)
+                    collective = msg[:collective]
+                    agent = msg[:agent]
+
+                    # requests from older clients would not include the
+                    # :collective and :agent this parses the target in
+                    # a backward compat way for them
+                    unless collective && agent
+                        parsed_dest = Util.parse_msgtarget(msg[:msgtarget])
+                        collective = parsed_dest[:collective]
+                        agent = parsed_dest[:agent]
+                    end
+
+                    if agent == "mcollective"
+                        Log.debug("Handling message for mcollectived controller")
+
+                        controlmsg(msg, collective)
+                    else
+                        Log.debug("Handling message for agent '#{agent}' on collective '#{collective}'")
+
+                        agentmsg(msg, agent, collective)
                     end
                 rescue Interrupt
-                    @log.warn("Exiting after interrupt signal")
+                    Log.warn("Exiting after interrupt signal")
                     @connection.disconnect
                     exit!
 
                 rescue NotTargettedAtUs => e
-                    @log.info("Message does not pass filters, ignoring")
+                    Log.debug("Message does not pass filters, ignoring")
 
                 rescue Exception => e
-                    @log.warn("Failed to handle message: #{e} - #{e.class}\n")
-                    @log.warn(e.backtrace.join("\n\t"))
+                    Log.warn("Failed to handle message: #{e} - #{e.class}\n")
+                    Log.warn(e.backtrace.join("\n\t"))
                 end
             end
         end
 
         private
         # Deals with messages directed to agents
-        def agentmsg(msg, target)
+        def agentmsg(msg, target, collective)
             @agents.dispatch(msg, target, @connection) do |replies|
-                dest = Util.make_target(target, :reply)
-                reply(target, dest, replies, msg[:requestid]) unless replies == nil
+                dest = Util.make_target(target, :reply, collective)
+                reply(target, dest, replies, msg[:requestid], msg[:callerid]) unless replies == nil
             end
         end
 
         # Deals with messages sent to our control topic
-        def controlmsg(msg)
+        def controlmsg(msg, collective)
             begin
                 body = msg[:body]
                 requestid = msg[:requestid]
+                callerid = msg[:callerid]
 
-                replytopic = Util.make_target("mcollective", :reply)
+                replytopic = Util.make_target("mcollective", :reply, collective)
 
                 case body
                     when /^stats$/
-                        reply("mcollective", replytopic, @stats.to_hash, requestid)
+                        reply("mcollective", replytopic, @stats.to_hash, requestid, callerid)
 
                     when /^reload_agent (.+)$/
-                        reply("mcollective", replytopic, "reloaded #{$1} agent", requestid) if @agents.loadagent($1)
+                        reply("mcollective", replytopic, "reloaded #{$1} agent", requestid, callerid) if @agents.loadagent($1)
 
                     when /^reload_agents$/
-                        reply("mcollective", replytopic, "reloaded all agents", requestid) if @agents.loadagents
-
-                    when /^exit$/
-                        @log.error("Exiting due to request to controller")
-                        reply("mcollective", replytopic, "exiting after request to controller", requestid)
-
-                        @connection.disconnect
-                        exit!
+                        reply("mcollective", replytopic, "reloaded all agents", requestid, callerid) if @agents.loadagents
 
                     else
-                        @log.error("Received an unknown message to the controller")
+                        Log.error("Received an unknown message to the controller")
 
                 end
             rescue Exception => e
-                @log.error("Failed to handle control message: #{e}")
+                Log.error("Failed to handle control message: #{e}")
             end
         end
 
@@ -144,8 +145,8 @@ module MCollective
         end
 
         # Sends a reply to a specific target topic
-        def reply(sender, target, msg, requestid)
-            reply = @security.encodereply(sender, target, msg, requestid)
+        def reply(sender, target, msg, requestid, callerid)
+            reply = @security.encodereply(sender, target, msg, requestid, callerid)
 
             @connection.send(target, reply)
 

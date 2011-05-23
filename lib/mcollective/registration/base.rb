@@ -23,17 +23,25 @@ module MCollective
                 Thread.new do
                     loop do
                         begin
-                            target = Util.make_target("registration", :command)
+                            target = Util.make_target("registration", :command, config.main_collective)
                             reqid = Digest::MD5.hexdigest("#{config.identity}-#{Time.now.to_f.to_s}-#{target}")
                             filter = {"agent" => "registration"}
-                            req = PluginManager["security_plugin"].encoderequest(config.identity, target, body, reqid, filter)
-                            
-                            Log.instance.debug("Sending registration #{reqid} to #{target}")
-                            connection.send(target, req)
-    
-                            sleep config.registerinterval             
+
+                            registration_message = body
+
+                            unless registration_message.nil?
+                                req = PluginManager["security_plugin"].encoderequest(config.identity, target, registration_message, reqid, filter)
+
+                                Log.debug("Sending registration #{reqid} to #{target}")
+                                connection.send(target, req)
+                            else
+                                Log.debug("Skipping registration due to nil body")
+                            end
+
+                            sleep config.registerinterval
                         rescue Exception => e
-                            Log.instance.error("Sending registration message failed: #{e}")
+                            Log.error("Sending registration message failed: #{e}")
+                            sleep config.registerinterval
                         end
                     end
                 end

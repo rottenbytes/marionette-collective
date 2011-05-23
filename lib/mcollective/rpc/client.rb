@@ -4,7 +4,9 @@ module MCollective
         # and just brings in a lot of convention and standard approached.
         class Client
             attr_accessor :discovery_timeout, :timeout, :verbose, :filter, :config, :progress
-            attr_reader :client, :stats, :ddl, :agent
+            attr_reader :client, :stats, :ddl, :agent, :limit_targets
+
+            @@initial_options = nil
 
             # Creates a stub for a remote agent, you can pass in an options array in the flags
             # which will then be used else it will just create a default options array with
@@ -17,8 +19,12 @@ module MCollective
             def initialize(agent, flags = {})
                 if flags.include?(:options)
                     options = flags[:options]
+
+                elsif @@initial_options
+                    options = Marshal.load(@@initial_options)
+
                 else
-                    oparser = MCollective::Optionparser.new({:verbose => false, :progress_bar => true}, "filter")
+                    oparser = MCollective::Optionparser.new({:verbose => false, :progress_bar => true, :mcollective_limit_targets => false}, "filter")
 
                     options = oparser.parse do |parser, options|
                         if block_given?
@@ -27,6 +33,8 @@ module MCollective
 
                         Helpers.add_simplerpc_options(parser, options)
                     end
+
+                    @@initial_options = Marshal.dump(options)
                 end
 
                 @stats = Stats.new
@@ -38,29 +46,43 @@ module MCollective
                 @config = options[:config]
                 @discovered_agents = nil
                 @progress = options[:progress_bar]
+                @limit_targets = options[:mcollective_limit_targets]
 
                 agent_filter agent
 
-                @client = client = MCollective::Client.new(@config)
+                @client = MCollective::Client.new(@config)
                 @client.options = options
+
+                @collective = @client.collective
 
                 # if we can find a DDL for the service override
                 # the timeout of the client so we always magically
                 # wait appropriate amounts of time.
+                #
+                # We add the discovery timeout to the ddl supplied
+                # timeout as the discovery timeout tends to be tuned
+                # for local network conditions and fact source speed
+                # which would other wise not be accounted for and
+                # some results might get missed.
                 #
                 # We do this only if the timeout is the default 5
                 # seconds, so that users cli overrides will still
                 # get applied
                 begin
                     @ddl = DDL.new(agent)
-                    @timeout = @ddl.meta[:timeout] if @timeout == 5
+                    @timeout = @ddl.meta[:timeout] + @discovery_timeout if @timeout == 5
                 rescue Exception => e
-                    Log.instance.debug("Could not find DDL: #{e}")
+                    Log.debug("Could not find DDL: #{e}")
                     @ddl = nil
                 end
 
                 STDERR.sync = true
                 STDOUT.sync = true
+            end
+
+            # Disconnects cleanly from the middleware
+            def disconnect
+                @client.disconnect
             end
 
             # Returns help for an agent if a DDL was found
@@ -163,13 +185,17 @@ module MCollective
 
                 @ddl.validate_request(action, args) if @ddl
 
-                # Normal agent requests as per client.action(args)
-                if block_given?
-                    call_agent(action, args, options) do |r|
-                        block.call(r)
-                    end
+                # Handle single target requests by doing discovery and picking
+                # a random node.  Then do a custom request specifying a filter
+                # that will only match the one node.
+                if @limit_targets
+                    target_nodes = pick_nodes_from_discovered(@limit_targets)
+                    Log.debug("Picked #{target_nodes.join(',')} as limited target(s)")
+
+                    custom_request(action, args, target_nodes, {"identity" => /^(#{target_nodes.join('|')})$/}, &block)
                 else
-                    call_agent(action, args, options)
+                    # Normal agent requests as per client.action(args)
+                    call_agent(action, args, options, &block)
                 end
             end
 
@@ -221,6 +247,12 @@ module MCollective
                 # Fake out the stats discovery would have put there
                 @stats.discovered_agents([expected_agents].flatten)
 
+                # Handle fire and forget requests
+                if args.include?(:process_results) && args[:process_results] == false
+                    @filter = custom_filter
+                    return fire_and_forget_request(action, args)
+                end
+
                 # Now do a call pretty much exactly like in method_missing except with our own
                 # options and discovery magic
                 if block_given?
@@ -240,8 +272,18 @@ module MCollective
             end
 
             # Sets the fact filter
-            def fact_filter(fact, value)
-                @filter["fact"] << {:fact => fact, :value => value}
+            def fact_filter(fact, value=nil, operator="=")
+                return if fact.nil?
+                return if fact == false
+
+                if value.nil?
+                    parsed = Util.parse_fact_string(fact)
+                    @filter["fact"] << parsed unless parsed == false
+                else
+                    parsed = Util.parse_fact_string("#{fact}#{operator}#{value}")
+                    @filter["fact"] << parsed unless parsed == false
+                end
+
                 @filter["fact"].compact!
                 reset
             end
@@ -306,10 +348,69 @@ module MCollective
                  :timeout => @timeout,
                  :verbose => @verbose,
                  :filter => @filter,
+                 :collective => @collective,
                  :config => @config}
             end
 
+            # Sets the collective we are communicating with
+            def collective=(c)
+                @collective = c
+                @client.options[:collective] = c
+            end
+
+            # Sets and sanity checks the limit_targets variable
+            # used to restrict how many nodes we'll target
+            def limit_targets=(limit)
+                if limit.is_a?(String)
+                    raise "Invalid limit specified: #{limit} valid limits are /^\d+%*$/" unless limit =~ /^\d+%*$/
+                    @limit_targets = limit
+                elsif limit.respond_to?(:to_i)
+                    limit = limit.to_i
+                    limit = 1 if limit == 0
+                    @limit_targets = limit
+                else
+                    raise "Don't know how to handle limit of type #{limit.class}"
+                end
+            end
+
             private
+            # Pick a number of nodes from the discovered nodes
+            #
+            # The count should be a string that can be either
+            # just a number or a percentage like 10%
+            #
+            # It will select nodes from the discovered list based
+            # on the rpclimitmethod configuration option which can
+            # be either :first or anything else
+            #
+            #   - :first would be a simple way to do a distance based
+            #     selection
+            #   - anything else will just pick one at random
+            def pick_nodes_from_discovered(count)
+                if count =~ /%$/
+                    pct = (discover.size * (count.to_f / 100)).to_i
+                    pct == 0 ? count = 1 : count = pct
+                else
+                    count = count.to_i
+                end
+
+                return discover if discover.size <= count
+
+                result = []
+
+                if Config.instance.rpclimitmethod == :first
+                    return discover[0, count]
+                else
+                    count.times do
+                        rnd = rand(discover.size)
+                        result << discover[rnd]
+                        discover.delete_at(rnd)
+                    end
+                end
+
+                [result].flatten
+            end
+
             # for requests that do not care for results just
             # return the request id and don't do any of the
             # response processing.
@@ -333,10 +434,8 @@ module MCollective
             def call_agent(action, args, opts, disc=:auto, &block)
                 # Handle fire and forget requests and make sure
                 # the :process_results value is set appropriately
-                if args.include?(:process_results)
-                    if args[:process_results] == false
-                        return fire_and_forget_request(action, args)
-                    end
+                if args.include?(:process_results) && args[:process_results] == false
+                    return fire_and_forget_request(action, args)
                 else
                     args[:process_results] = true
                 end
@@ -347,7 +446,7 @@ module MCollective
 
                 req = new_request(action.to_s, args)
 
-                twirl = Progress.new(60)
+                twirl = Progress.new
 
                 result = []
                 respcount = 0
@@ -357,7 +456,7 @@ module MCollective
                         respcount += 1
 
                         if block_given?
-                            process_results_with_block(resp, block)
+                            process_results_with_block(action, resp, block)
                         else
                             if @progress
                                 puts if respcount == 1
@@ -410,12 +509,21 @@ module MCollective
             # in this mode we do not do anything fancy with the result
             # objects and we raise exceptions if there are problems with
             # the data
-            def process_results_with_block(resp, block)
+            def process_results_with_block(action, resp, block)
                 @stats.node_responded(resp[:senderid])
 
                 if resp[:body][:statuscode] == 0 || resp[:body][:statuscode] == 1
                     @stats.time_block_execution :start
-                    block.call(resp)
+
+                    case block.arity
+                        when 1
+                            block.call(resp)
+                        when 2
+                            rpcresp = Result.new(@agent, action, {:sender => resp[:senderid], :statuscode => resp[:body][:statuscode],
+                                                                  :statusmsg => resp[:body][:statusmsg], :data => resp[:body][:data]})
+                            block.call(resp, rpcresp)
+                    end
+
                     @stats.time_block_execution :end
                 else
                     case resp[:body][:statuscode]
@@ -430,7 +538,6 @@ module MCollective
                     end
                 end
             end
-
         end
     end
 end

@@ -1,13 +1,14 @@
 require 'rubygems'
 require 'stomp'
-require 'logger'
 require 'timeout'
 require 'digest/md5'
 require 'optparse'
 require 'singleton'
 require 'socket'
 require 'erb'
+require 'shellwords'
 require 'mcollective/monkey_patches'
+require 'tempfile'
 
 # == The Marionette Collective
 #
@@ -27,10 +28,12 @@ module MCollective
     class InvalidRPCData<RPCError;end
     class UnknownRPCError<RPCError;end
     class NotTargettedAtUs<RuntimeError;end
+    class SecurityValidationFailed<RuntimeError;end
     class DDLValidationError<RuntimeError;end
 
     autoload :Config, "mcollective/config"
     autoload :Log, "mcollective/log"
+    autoload :Logger, "mcollective/logger"
     autoload :Runner, "mcollective/runner"
     autoload :RunnerStats, "mcollective/runnerstats"
     autoload :Agents, "mcollective/agents"
@@ -44,6 +47,13 @@ module MCollective
     autoload :PluginManager, "mcollective/pluginmanager"
     autoload :RPC, "mcollective/rpc"
     autoload :Request, "mcollective/request"
+    autoload :SSL, "mcollective/ssl"
+    autoload :Application, "mcollective/application"
+    autoload :Applications, "mcollective/applications"
+    autoload :Vendor, "mcollective/vendor"
+    autoload :Shell, "mcollective/shell"
+
+    MCollective::Vendor.load_vendored
 
     VERSION="@DEVELOPMENT_VERSION@"
 

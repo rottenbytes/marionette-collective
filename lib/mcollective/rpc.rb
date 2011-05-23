@@ -15,6 +15,7 @@ module MCollective
         autoload :DDL, "mcollective/rpc/ddl"
         autoload :Result, "mcollective/rpc/result"
         autoload :Helpers, "mcollective/rpc/helpers"
+        autoload :ActionRunner, "mcollective/rpc/actionrunner"
 
         # Creates a standard options hash, pass in a block to add extra headings etc
         # see Optionparser
@@ -131,8 +132,16 @@ module MCollective
             verbose = flags[:verbose] || verbose
             flatten = flags[:flatten] || false
 
-            puts
-            puts Helpers.rpcresults(result, {:verbose => verbose, :flatten => flatten})
+            result_text =  Helpers.rpcresults(result, {:verbose => verbose, :flatten => flatten})
+
+            if result.is_a?(Array)
+                puts "\n%s\n" % [ result_text ]
+            else
+                # when we get just one result to print dont pad them all with
+                # blank spaces etc, just print the individual result with no
+                # padding
+                puts result_text unless result_text == ""
+            end
         end
 
         # Wrapper for MCollective::Util.empty_filter? to make clients less fugly

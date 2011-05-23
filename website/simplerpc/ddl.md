@@ -1,17 +1,17 @@
 ---
-layout: mcollective
+layout: default
 title: SimpleRPC Data Definition Language
 disqus: true
 ---
-[WritingAgents]: /reference/basic/basic_agent_and_client.html
-[SimpleRPCClients]: /simplerpc/clients.html
-[ResultsandExceptions]: /simplerpc/clients.html#results_and_exceptions
-[SimpleRPCAuditing]: /simplerpc/auditing.html
-[SimpleRPCAuthorization]: /simplerpc/authorization.html
-[SimpleRPCDDL]: /simplerpc/ddl.html
+[WritingAgents]: /mcollective/reference/basic/basic_agent_and_client.html
+[SimpleRPCClients]: /mcollective/simplerpc/clients.html
+[ResultsandExceptions]: /mcollective/simplerpc/clients.html#results_and_exceptions
+[SimpleRPCAuditing]: /mcollective/simplerpc/auditing.html
+[SimpleRPCAuthorization]: /mcollective/simplerpc/authorization.html
+[SimpleRPCDDL]: /mcollective/simplerpc/ddl.html
 [WritingAgentsScreenCast]: http://mcollective.blip.tv/file/3808928/
 [DDLScreenCast]: http://mcollective.blip.tv/file/3799653
-[RPCUtil]: /reference/plugins/rpcutil.html
+[RPCUtil]: /mcollective/reference/plugins/rpcutil.html
 
 # {{page.title}}
 
@@ -46,11 +46,11 @@ First we need to define the meta data for the agent itself:
 
 {% highlight ruby linenos %}
 metadata :name        => "SimpleRPC Service Agent",
-         :description => "Agent to manage services using the Puppet service provider", 
+         :description => "Agent to manage services using the Puppet service provider",
          :author      => "R.I.Pienaar",
          :license     => "GPLv2",
          :version     => "1.1",
-         :url         => "http://mcollective-plugins.googlecode.com/",
+         :url         => "http://projects.puppetlabs.com/projects/mcollective-plugins/wiki",
          :timeout     => 60
 {% endhighlight %}
 
@@ -63,7 +63,7 @@ Defining inputs and outputs is the hardest part, below first the *status* action
 action "status", :description => "Gets the status of a service" do
     display :always  # supported in 0.4.7 and newer only
 
-    input :service, 
+    input :service,
           :prompt      => "Service Name",
           :description => "The service to get the status for",
           :type        => :string,
@@ -86,11 +86,11 @@ Finally the service agent has 3 almost identical actions - *start*, *stop* and *
 {% highlight ruby linenos %}
 ["start", "stop", "restart"].each do |act|
     action act, :description => "#{act.capitalize} a service" do
-        input :service, 
+        input :service,
               :prompt      => "Service Name",
               :description => "The service to #{act}",
               :type        => :string,
-              :validation  => '^[a-zA-Z\-_\d]+$', 
+              :validation  => '^[a-zA-Z\-_\d]+$',
               :optional    => false,
               :maxlength   => 30
 
@@ -105,10 +105,10 @@ All of this code just goes into a file, no special class or module bits needed, 
 
 Importantly you do not need to have the *service.rb* on a machine to use the DDL, this means on machines that are just used for running client programs you can just drop the *.ddl* files into the agents directory.
 
-You can view a human readable version of this using the *mc-rpc* command:
+You can view a human readable version of this using *mco help &lt;agent&gt;* command:
 
 {% highlight console %}
-% mc-rpc --agent-help service
+% mco help service
 SimpleRPC Service Agent
 =======================
 
@@ -118,7 +118,7 @@ Agent to manage services using the Puppet service provider
      Version: 1.1
      License: GPLv2
      Timeout: 60
-   Home Page: http://mcollective-plugins.googlecode.com/
+   Home Page: http://projects.puppetlabs.com/projects/mcollective-plugins/wiki
 
 
 
@@ -149,7 +149,7 @@ ACTIONS:
 The input block has a mandatory *:optional* field, when true it would be ok if a client attempts to call the agent without this input supplied.  If it is supplied though it will be validated.
 
 ### Types of Input
-As you see above the input block has *:type* option, types can be *:string*, *:list* or *:boolean* today, we intend to expand this to other validations.
+As you see above the input block has *:type* option, types can be *:string*, *:list*, *:boolean* or *:any* today, we intend to expand this to other validations.
 
 #### :string type
 The string type validates initially that the input is infact a String, then it validates the length of the input and finally matches the supplied Regular Expression.
@@ -162,7 +162,7 @@ If you want to allow unlimited length text you can make *:maxlength => 0* but us
 List types provide a list of valid options and only those will be allowed, see an example below:
 
 {% highlight ruby linenos %}
-input :action, 
+input :action,
       :prompt      => "Service Action",
       :description => "The action to perform",
       :type        => :list,
@@ -175,6 +175,10 @@ In user interfaces this might be displayed as a drop down list selector or anoth
 #### :boolean type
 
 The value input should be either _true_ or _false_ actual boolean values.  This feature was introduced in version _0.4.9_.
+
+#### :any type
+
+The value input can be any type, this allows you to send rich objects like arrays of hashes around, it effectively disables validation of the type of input
 
 ### Accessing the DDL
 While programming client applications or web apps you can gain access to the DDL for any agent in several ways:
@@ -210,7 +214,7 @@ Meta Data:
  :name=>"SimpleRPC Service Agent",
  :timeout=>60,
  :version=>"1.1",
- :url=>"http://mcollective-plugins.googlecode.com/",
+ :url=>"http://projects.puppetlabs.com/projects/mcollective-plugins/wiki",
  :description=>"Agent to manage services using the Puppet service provider"}
 
 Status Action:

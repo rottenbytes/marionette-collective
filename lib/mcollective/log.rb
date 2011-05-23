@@ -1,98 +1,102 @@
 module MCollective
-    # A simple singleton class that allows logging at various levels.
+    # A simple class that allows logging at various levels.
     class Log
-        include Singleton
+        class << self
+            @logger = nil
 
-        @logger = nil
-
-        def initialize
-            config = Config.instance
-            raise ("Configuration has not been loaded, can't start logger") unless config.configured
-
-            @logger = Logger.new(config.logfile, config.keeplogs, config.max_log_size)
-            @logger.formatter = Logger::Formatter.new
-
-            case config.loglevel
-                when "info"
-                    @logger.level = Logger::INFO
-                when "warn"
-                    @logger.level = Logger::WARN
-                when "debug"
-                    @logger.level = Logger::DEBUG
-                when "fatal"
-                    @logger.level = Logger::FATAL
-                when "error"
-                    @logger.level = Logger::ERROR
-                else
-                    @logger.level = Logger::INFO
-                    log(Logger::ERROR, "Invalid log level #{config.loglevel}, defaulting to info")
+            # Obtain the class name of the currently configured logger
+            def logger
+                @logger.class
             end
-        end
 
-        # cycles the log level increasing it till it gets to the highest
-        # then down to the lowest again
-        def cycle_level
-            config = Config.instance
-
-            case @logger.level
-                when Logger::FATAL
-                    @logger.level = Logger::ERROR
-                    error("Logging level is now ERROR configured level is #{config.loglevel}")
-
-                when Logger::ERROR
-                    @logger.level = Logger::WARN
-                    warn("Logging level is now WARN configured level is #{config.loglevel}")
-
-                when Logger::WARN
-                    @logger.level = Logger::INFO
-                    info("Logging level is now INFO configured level is #{config.loglevel}")
-
-                when Logger::INFO
-                    @logger.level = Logger::DEBUG
-                    info("Logging level is now DEBUG configured level is #{config.loglevel}")
-
-                when Logger::DEBUG
-                    @logger.level = Logger::FATAL
-                    fatal("Logging level is now FATAL configured level is #{config.loglevel}")
-
-                else
-                    @logger.level = Logger::DEBUG
-                    info("Logging level now DEBUG configured level is #{config.loglevel}")
+            # Logs at info level
+            def info(msg)
+                log(:info, msg)
             end
-        end
 
-        # logs at level INFO
-        def info(msg)
-            log(Logger::INFO, msg)
-        end
+            # Logs at warn level
+            def warn(msg)
+                log(:warn, msg)
+            end
 
-        # logs at level WARN
-        def warn(msg)
-            log(Logger::WARN, msg)
-        end
+            # Logs at debug level
+            def debug(msg)
+                log(:debug, msg)
+            end
 
-        # logs at level DEBUG
-        def debug(msg)
-            log(Logger::DEBUG, msg)
-        end
+            # Logs at fatal level
+            def fatal(msg)
+                log(:fatal, msg)
+            end
 
-        # logs at level FATAL
-        def fatal(msg)
-            log(Logger::FATAL, msg)
-        end
+            # Logs at error level
+            def error(msg)
+                log(:error, msg)
+            end
 
-        # logs at level ERROR
-        def error(msg)
-            log(Logger::ERROR, msg)
-        end
+            # handle old code that relied on this class being a singleton
+            def instance
+                self
+            end
 
-        private
-        # do some fancy logging with caller information etc
-        def log(severity, msg)
-            begin
-                from = File.basename(caller[1])
-                @logger.add(severity) { "#{$$} #{from}: #{msg}" }
+            # increments the active log level
+            def cycle_level
+                @logger.cycle_level if @configured
+            end
+
+            # logs a message at a certain level
+            def log(level, msg)
+                configure unless @configured
+
+                raise "Unknown log level" unless [:error, :fatal, :debug, :warn, :info].include?(level)
+
+                if @logger
+                    @logger.log(level, from, msg)
+                else
+                    t = Time.new.strftime("%H:%M:%S")
+
+                    STDERR.puts "#{t}: #{level}: #{from}: #{msg}"
+                end
+            end
+
+            # sets the logger class to use
+            def set_logger(logger)
+                @logger = logger
+            end
+
+            # configures the logger class, if the config has not yet been loaded
+            # we default to the console logging class and do not set @configured
+            # so that future calls to the log method will keep attempting to configure
+            # the logger till we eventually get a logging preference from the config
+            # module
+            def configure(logger=nil)
+                unless logger
+                    logger_type = "console"
+
+                    config = Config.instance
+
+                    if config.configured
+                        logger_type = config.logger_type
+                        @configured = true
+                    end
+
+                    require "mcollective/logger/#{logger_type.downcase}_logger"
+                    set_logger(eval("MCollective::Logger::#{logger_type.capitalize}_logger.new"))
+                else
+                    set_logger(logger)
+                    @configured = true
+                end
+
+
+                @logger.start
             rescue Exception => e
+                @configured = false
+                STDERR.puts "Could not start logger: #{e.class} #{e}"
+            end
+
+            # figures out the filename that called us
+            def from
+                from = File.basename(caller[2])
             end
         end
     end

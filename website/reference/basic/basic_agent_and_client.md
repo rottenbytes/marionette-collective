@@ -1,9 +1,9 @@
 ---
-layout: mcollective
+layout: default
 title: Basic Agents and Clients
 disqus: true
 ---
-[SimpleRPCIntroduction]: /simplerpc/
+[SimpleRPCIntroduction]: /mcollective/simplerpc/
 
 # {{page.title}}
 
@@ -151,7 +151,7 @@ oparser = MCollective::Optionparser.new({}, "filter")
 
 options = oparser.parse{|parser, options|
     parser.define_head "Tester for the echo agent"
-    parser.banner = "Usage: sh-echo [options] msg"
+    parser.banner = "Usage: mc-echo [options] msg"
 }
 
 if ARGV.length > 0
@@ -224,8 +224,8 @@ Finished processing 1 / 1 hosts in 38.77 ms
 Standard Help:
 
 {% highlight console %}
-% ./mc-echo --help 
-Usage: sh-echo [options] msg 
+% ./mc-echo --help
+Usage: mc-echo [options] msg
 Tester for the echo agent
 
 Common Options

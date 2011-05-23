@@ -1,7 +1,7 @@
 module MCollective
     module RPC
         # A wrapper around the traditional agent, it takes care of a lot of the tedious setup
-        # you would do for each agent allowing you to just create methods following a naming 
+        # you would do for each agent allowing you to just create methods following a naming
         # standard leaving the heavy lifting up to this clas.
         #
         # See http://marionette-collective.org/simplerpc/agents.html
@@ -22,9 +22,19 @@ module MCollective
         #             action "hello" do
         #                 reply[:msg] = "Hello #{request[:name]}"
         #             end
+        #
+        #             action "foo" do
+        #                 implemented_by "/some/script.sh"
+        #             end
         #          end
         #       end
         #    end
+        #
+        # If you wish to implement the logic for an action using an external script use the
+        # implemented_by method that will cause your script to be run with 2 arguments.
+        #
+        # The first argument is a file containing JSON with the request and the 2nd argument
+        # is where the script should save its output as a JSON hash.
         #
         # We also currently have the validation code in here, this will be moved to plugins soon.
         class Agent
@@ -57,17 +67,17 @@ module MCollective
                 # if we have a global authorization provider enable it
                 # plugins can still override it per plugin
                 self.class.authorized_by(@config.rpcauthprovider) if @config.rpcauthorization
-                
+
                 startup_hook
             end
-                
+
             def handlemsg(msg, connection)
                 @request = RPC.request(msg)
                 @reply = RPC.reply
 
                 begin
                     # Calls the authorization plugin if any is defined
-                    # if this raises an exception we wil just skip processing this 
+                    # if this raises an exception we wil just skip processing this
                     # message
                     authorization_hook(@request) if respond_to?("authorization_hook")
 
@@ -106,7 +116,12 @@ module MCollective
 
                 after_processing_hook
 
-                @reply.to_hash
+                if @request.should_respond?
+                    return @reply.to_hash
+                else
+                    Log.debug("Client did not request a response, surpressing reply")
+                    return nil
+                end
             end
 
             # Generates help using the template based on the data
@@ -133,6 +148,75 @@ module MCollective
 
 
             private
+            # Runs a command via the MC::Shell wrapper, options are as per MC::Shell
+            #
+            # The simplest use is:
+            #
+            #   out = ""
+            #   err = ""
+            #   status = run("echo 1", :stdout => out, :stderr => err)
+            #
+            #   reply[:out] = out
+            #   reply[:error] = err
+            #   reply[:exitstatus] = status
+            #
+            # This can be simplified as:
+            #
+            #   reply[:exitstatus] = run("echo 1", :stdout => :out, :stderr => :error)
+            #
+            # You can set a command specific environment and cwd:
+            #
+            #   run("echo 1", :cwd => "/tmp", :environment => {"FOO" => "BAR"})
+            #
+            # This will run 'echo 1' from /tmp with FOO=BAR in addition to a setting forcing
+            # LC_ALL = C.  To prevent LC_ALL from being set either set it specifically or:
+            #
+            #   run("echo 1", :cwd => "/tmp", :environment => nil)
+            #
+            # Exceptions here will be handled by the usual agent exception handler or any
+            # specific one you create, if you dont it will just fall through and be sent
+            # to the client
+            def run(command, options={})
+                shellopts = {}
+
+                # force stderr and stdout to be strings as the library
+                # will append data to them if given using the << method.
+                #
+                # if the data pased to :stderr or :stdin is a Symbol
+                # add that into the reply hash with that Symbol
+                [:stderr, :stdout].each do |k|
+                    if options.include?(k)
+                        if options[k].is_a?(Symbol)
+                            reply[ options[k] ] = ""
+                            shellopts[k] = reply[ options[k] ]
+                        else
+                            if options[k].respond_to?("<<")
+                                shellopts[k] = options[k]
+                            else
+                                reply.fail! "#{k} should support << while calling run(#{command})"
+                            end
+                        end
+                    end
+                end
+
+                [:stdin, :cwd, :environment].each do |k|
+                    if options.include?(k)
+                        shellopts[k] = options[k]
+                    end
+                end
+
+                shell = Shell.new(command, shellopts)
+
+                shell.runcommand
+
+                if options[:chomp]
+                    shellopts[:stdout].chomp! if shellopts[:stdout].is_a?(String)
+                    shellopts[:stderr].chomp! if shellopts[:stderr].is_a?(String)
+                end
+
+                shell.status.exitstatus
+            end
+
             # Registers meta data for the introspection hash
             def self.metadata(data)
                 [:name, :description, :author, :license, :version, :url, :timeout].each do |arg|
@@ -151,7 +235,7 @@ module MCollective
                 }
             end
 
-            # Creates a new action wit the block passed and sets some defaults
+            # Creates a new action with the block passed and sets some defaults
             #
             # action "status" do
             #    # logic here to restart service
@@ -207,11 +291,10 @@ module MCollective
                         case validation
                             when :shellsafe
                                 raise InvalidRPCData, "#{key} should be a String" unless @request[key].is_a?(String)
-                                raise InvalidRPCData, "#{key} should not have > in it" if @request[key].match(/>/) 
-                                raise InvalidRPCData, "#{key} should not have < in it" if @request[key].match(/</) 
-                                raise InvalidRPCData, "#{key} should not have \` in it" if @request[key].match(/\`/) 
-                                raise InvalidRPCData, "#{key} should not have | in it" if @request[key].match(/\|/) 
 
+                                ['`', '$', ';', '|', '&&', '>', '<'].each do |chr|
+                                    raise InvalidRPCData, "#{key} should not have #{chr} in it" if @request[key].match(Regexp.escape(chr))
+                                end
 
                             when :ipv6address
                                 begin
@@ -233,15 +316,39 @@ module MCollective
 
                         end
                     else
-                        raise InvalidRPCData, "#{key} should be a #{validation}" unless  @request.data[key].is_a?(validation)
+                        raise InvalidRPCData, "#{key} should be a #{validation}" unless  @request[key].is_a?(validation)
                     end
                 rescue Exception => e
                     raise UnknownRPCError, "Failed to validate #{key}: #{e}"
                 end
             end
 
+            # convenience wrapper around Util#shellescape
+            def shellescape(str)
+                Util.shellescape(str)
+            end
+
+            # handles external actions
+            def implemented_by(command, type=:json)
+                runner = ActionRunner.new(command, request, type)
+
+                res = runner.run
+
+                reply.fail! "Did not receive data from #{command}" unless res.include?(:data)
+                reply.fail! "Reply data from #{command} is not a Hash" unless res[:data].is_a?(Hash)
+
+                reply.data.merge!(res[:data])
+
+                if res[:exitstatus] > 0
+                    reply.fail "Failed to run #{command}: #{res[:stderr]}", res[:exitstatus]
+                end
+            rescue Exception => e
+                Log.warn("Unhandled #{e.class} exception during #{request.agent}##{request.action}: #{e}")
+                reply.fail! "Unexpected failure calling #{command}: #{e.class}: #{e}"
+            end
+
             # Called at the end of the RPC::Agent standard initialize method
-            # use this to adjust meta parameters, timeouts and any setup you 
+            # use this to adjust meta parameters, timeouts and any setup you
             # need to do.
             #
             # This will not be called right when the daemon starts up, we use
@@ -261,7 +368,7 @@ module MCollective
             # to the middleware.
             #
             # This gets run outside of the main exception handling block of the agent
-            # so you should handle any exceptions you could raise yourself.  The reason 
+            # so you should handle any exceptions you could raise yourself.  The reason
             # it is outside of the block is so you'll have access to even status codes
             # set by the exception handlers.  If you do raise an exception it will just
             # be passed onto the runner and processing will fail.
@@ -276,7 +383,7 @@ module MCollective
             def audit_request(msg, connection)
                 PluginManager["rpcaudit_plugin"].audit_request(msg, connection) if @config.rpcaudit
             rescue Exception => e
-                @logger.warn("Audit failed - #{e} - continuing to process message")
+                Log.warn("Audit failed - #{e} - continuing to process message")
             end
         end
     end

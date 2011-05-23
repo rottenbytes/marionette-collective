@@ -1,14 +1,14 @@
 ---
-layout: mcollective
+layout: default
 title: ActiveMQ Clustering
 disqus: true
 ---
-[MessageFormat]: /reference/basic/messageformat.html
-[MessageFlow]: /reference/basic/messageflow.html
+[MessageFormat]: /mcollective/reference/basic/messageformat.html
+[MessageFlow]: /mcollective/reference/basic/messageflow.html
 [NetworksOfBrokers]: http://activemq.apache.org/networks-of-brokers.html
 [UsingSSL]: http://activemq.apache.org/how-do-i-use-ssl.html
-[SecurityWithActiveMQ]: /reference/integration/activemq_security.html
-[SampleConfig]: http://github.com/mcollective/marionette-collective/tree/master/ext/activemq/
+[SecurityWithActiveMQ]: /mcollective/reference/integration/activemq_security.html
+[SampleConfig]: http://github.com/puppetlabs/marionette-collective/tree/master/ext/activemq/
 
 # {{page.title}}
 
@@ -19,9 +19,10 @@ We'll cover here how to build a multi data center network of ActiveMQ servers wi
 There is an example of a 3 node cluster in the [ext/activemq directory][SampleConfig].
 
 ## Network Design
+
 ### Network Layout
 
-![ActiveMQ Cluster](/images/activemq-multi-locations.png)
+![ActiveMQ Cluster](/mcollective/images/activemq-multi-locations.png)
 
 The diagram above shows our sample network, I am using the same techniques to put an ActiveMQ in each of 4 countries and then having local nodes communicate to in-country ActiveMQ nodes.
 
@@ -62,7 +63,7 @@ First you should configure transport for that each ActiveMQ will listen on, this
 {%highlight xml linenos %}
  <broker xmlns="http://activemq.org/config/1.0" brokerName="noc1-broker" useJmx="true"
       dataDirectory="${activemq.base}/data">
- 
+
       <transportConnectors>
          <transportConnector name="openwire" uri="tcp://0.0.0.0:6166"/>
          <transportConnector name="stomp"   uri="stomp://0.0.0.0:6163"/>

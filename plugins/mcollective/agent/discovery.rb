@@ -1,18 +1,20 @@
 module MCollective
     module Agent
         # Discovery agent for The Marionette Collective
-        # 
+        #
         # Released under the Apache License, Version 2
         class Discovery
             attr_reader :timeout, :meta
 
             def initialize
-                @log = Log.instance
+                config = Config.instance.pluginconf
 
-                @timeout = Config.instance.pluginconf["discovery.timeout"].to_i || 5
+                @timeout = 5
+                @timeout = config["discovery.timeout"].to_i if config.include?("discovery.timeout")
 
                 @meta = {:license => "Apache License, Version 2",
-                         :author => "R.I.Pienaar <rip@devco.net>"}
+                         :author => "R.I.Pienaar <rip@devco.net>",
+                         :timeout => @timeout}
             end
 
             def handlemsg(msg, stomp)
@@ -48,7 +50,7 @@ module MCollective
                 Accepted Messages
                 -----------------
 
-                inventory     - returns a hash with various bits of information like 
+                inventory     - returns a hash with various bits of information like
                                 list of agents, threads, etc
 
                 ping          - simply responds with 'pong'

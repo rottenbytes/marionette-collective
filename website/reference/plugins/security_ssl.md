@@ -1,10 +1,12 @@
 ---
-layout: mcollective
+layout: default
 title: OpenSSL based Security Plugin
 disqus: true
 ---
-[SimpleRPCAuthorization]: /simplerpc/authorization.html
+[SimpleRPCAuthorization]: /mcollective/simplerpc/authorization.html
 [Registration]: registration.html
+[AESPlugin]: security_aes.html
+[SecurityOverview]: ../../security.html
 
 # {{page.title}}
 
@@ -15,7 +17,9 @@ disqus: true
 Implements a public/private key based message validation system using SSL
 public and private keys.
 
-The design goal of the plugin is two fold:
+Please review the [Security Overview][SecurityOverview] for a general discussion about security in Marionette Collective.
+
+The design goal of the plugin are two fold:
 
  * give different security credentials to clients and servers to avoid a compromised server from sending new client requests.
  * create a token that uniquely identify the client - based on the filename of the public key.  This creates a strong identity token for [SimpleRPCAuthorization].
@@ -27,7 +31,10 @@ Validation is as default and is provided by *MCollective::Security::Base*
 
 Initial code was contributed by Vladimir Vuksan and modified by R.I.Pienaar
 
+An [alternative plugin][AESPlugin] exist that encrypts data but is more work to setup and maintain.
+
 ## Setup
+
 ### Nodes
 To setup you need to create a SSL key pair that is shared by all nodes.
 
@@ -59,16 +66,16 @@ pair and share it with all clients:
  % openssl rsa -in john-private.pem -out john-public.pem -outform PEM -pubout
 {% endhighlight %}
 
-Each user has a unique userid, this is based on the name of the public key.  
+Each user has a unique userid, this is based on the name of the public key.
 In this example case the userid would be *'john-public'*.
- 
+
 Store these somewhere like:
 
 {% highlight console %}
  /home/john/.mc/john-private.pem
  /home/john/.mc/john-public.pem
 {% endhighlight %}
- 
+
 Every users public key needs to be distributed to all the nodes, save the john one
 in a file called:
 
@@ -76,11 +83,11 @@ in a file called:
   /etc/mcollective/ssl/clients/john-public.pem
 {% endhighlight %}
 
-If you wish to use [Registration] or auditing that sends connections over MC to a 
+If you wish to use [Registration] or auditing that sends connections over MC to a
 central host you will need also put the *server-public.pem* in the clients directory.
 
-You should be aware if you do add the node public key to the clients dir you will in 
-effect be weakening your overall security.  You should consider doing this only if 
+You should be aware if you do add the node public key to the clients dir you will in
+effect be weakening your overall security.  You should consider doing this only if
 you also set up an Authorization method that limits the requests the nodes can make.
 
 client.cfg:
@@ -96,8 +103,8 @@ If you have many clients per machine and dont want to configure the main config 
 with the public/private keys you can set the following environment variables:
 
 {% highlight console %}
- export MCOLLECTIVE_SSL_PRIVATE=/home/john/.mc/john-private.pem   
- export MCOLLECTIVE_SSL_PUBLIC=/home/john/.mc/john-public.pem   
+ export MCOLLECTIVE_SSL_PRIVATE=/home/john/.mc/john-private.pem
+ export MCOLLECTIVE_SSL_PUBLIC=/home/john/.mc/john-public.pem
 {% endhighlight %}
 
 ### Serialization Method
