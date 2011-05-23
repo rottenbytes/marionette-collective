@@ -4,6 +4,7 @@ title: Using With Chef
 disqus: true
 ---
 [FactsOpsCodeOhai]: http://code.google.com/p/mcollective-plugins/wiki/FactsOpsCodeOhai
+[OpscodeChefHandlers]: http://wiki.opscode.com/display/chef/Exception+and+Report+Handlers
 
 # {{page.title}}
 
@@ -42,26 +43,45 @@ So you can use the flattened versions of the information provided by Ohai in fil
 ## Class Filters
 Chef does not provide a list of roles and recipes that has been applied to a node, to use with MCollective you need to create such a list.
 
-It's very easy with Chef to do this in a simple cookbook.  Put the following code in a cookbook and arrange for it to run *last* on your node.
+It's very easy with Chef to do this in a handler. See the [Opscode documentation about Chef handlers][OpscodeChefHandlers] for how to install a handler.
 
 This will create a list of all roles and recipes in _/var/tmp/chefnode.txt_ on each node for us to use:
 
 {% highlight ruby %}
-ruby_block "store node data locally" do
-  block do
-    state = File.open("/var/tmp/chefnode.txt", "w")
-
-    node.run_state[:seen_recipes].keys.each do |recipe|
-        state.puts("recipe.#{recipe}")
+module Mcollective
+  class DumpRunList < Chef::Handler
+    def initialize(args)
+      @filename=args[:filename]
     end
 
-    node.run_list.roles.each do |role|
-        state.puts("role.#{role}")
-    end
+    def report
+      begin
+        fp=open(@filename,"w")
 
-    state.close
-  end
+        node.run_list.run_list.roles.each do |i|
+          fp.write("role.#{i}\n")
+        end
+
+        node.run_list.run_list.recipes.each do |i|
+          recipe = i.gsub("::",".")
+          fp.write("recipe.#{recipe}\n")
+        end
+
+        fp.close
+      rescue
+        Chef::Log.error("Could not dump runlist to #{@filename} !")
+      end
+    end
+  end 
 end
+{% endhighlight %}
+
+Saving it as _/var/cache/chef/handlers/mcollective.rb_, you would put the following in your chef client configuration :
+
+{% highlight ruby %}
+require "/var/cache/chef/handlers/mcollective"
+dumper=Mcollective::DumpRunList.new(:filename => "/var/tmp/chefnode.txt")
+report_handlers << dumper
 {% endhighlight %}
 
 You should configure MCollective to use this file by putting the following in your _server.cfg_
